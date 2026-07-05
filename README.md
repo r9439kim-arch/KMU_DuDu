@@ -6,6 +6,6 @@
 
 ### Team DuDu
 
-🏁 Final Round : 2025.08.25
+🏁 Final Round : 2026.08.25
 
 </div>
