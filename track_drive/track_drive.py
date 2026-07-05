@@ -119,16 +119,16 @@ class State(Node):
         self.MAX_SPEED_KMH  = 85.0
         self.MIN_SPEED_KMH  = 21.0
 
-        self.SPD_STRAIGHT   = 100.0 * self.KMH_TO_CODE   # ≤1  : 80km/h → 44.44
-        self.SPD_NEAR_STR   = 90.0 * self.KMH_TO_CODE   # ≤2  : 63km/h → 35.00
-        self.SPD_NEAR       = 75.0 * self.KMH_TO_CODE   # ≤4.5
-        self.SPD_MILD       = 45.0 * self.KMH_TO_CODE   # ≤7  : 54km/h → 30.00
-        self.SPD_MOD_KEEP   = 38.0 * self.KMH_TO_CODE   # ≤10 완만: 45km/h → 25.00
-        self.SPD_MOD_CHANGE = 30.0 * self.KMH_TO_CODE   # ≤10 급변: 32km/h → 17.78
-        self.SPD_SHARP_TOP  = 27.0 * self.KMH_TO_CODE   # >10 상한: 27km/h → 15.00
-        self.MIN_SPEED      = self.MIN_SPEED_KMH * self.KMH_TO_CODE  # 하한: 15km/h → 8.33
-        # >10 구간 기울기 (code 단위, 원본 0.1 유지)
-        self.SHARP_K        = 0.21
+        self.SPD_STRAIGHT   = 12.0
+        self.SPD_NEAR_STR   = 10.5
+        self.SPD_NEAR       = 9.0
+        self.SPD_MILD       = 8.0
+        self.SPD_MOD_KEEP   = 7.0
+        self.SPD_MOD_CHANGE = 6.0
+        self.SPD_SHARP_TOP  = 5.5
+
+        self.MIN_SPEED      = 5.0
+        self.SHARP_K        = 0.05
 
         self.timer = self.create_timer(0.05, self.state_function)
 
@@ -228,25 +228,25 @@ class State(Node):
         if self.pp_mode:
             #신호등 노란불,빨간불일떄 정지
             if self.traffic_mode and self.signal in ["3_RED", "3_YELLOW", "4_RED", "4_YELLOW"]:
-                cmd.angle = 0.0
-                cmd.speed  = 0.0
+                self.steer = 0.0
+                self.speed  = 0.0
             else:
                 #회전 후 직진
                 if self.corner_done:
-                    cmd.angle = 0.0
-                    cmd.speed  = 25.0
+                    self.steer = 0.0
+                    self.speed  = 25.0
                 elif self.corner_triggered:
                     elapsed = (self.get_clock().now() - self.corner_start_time).nanoseconds / 1e9
                     #처음 받은 조향각 기준으로 일정시간 회전
                     if elapsed < self.CORNER_HOLD_TIME:
-                        cmd.angle = float(self.corner_steer)
+                        self.steer = float(self.corner_steer)
                         abs_steer = np.abs(self.corner_steer)
                         speed = 25.0 - abs_steer * 0.4
-                        cmd.speed = float(np.clip(speed, 18.0, 25.0))
+                        self.speed = float(np.clip(speed, 18.0, 25.0))
                     else:
                         self.corner_done = True
-                        cmd.angle = 0.0
-                        cmd.speed  = 25.0
+                        self.steer = 0.0
+                        self.speed  = 25.0
                 #일정 조향각 이하는 무시하고 직진 후 일정 조향각 받을시 회전 진행
                 else:
                     steer = self.pp_steer
@@ -261,17 +261,17 @@ class State(Node):
                         self.corner_steer      = steer
                         self.corner_start_time = self.get_clock().now()
                         print(f"steer 값은 {steer}입니다")
-                    cmd.angle = float(steer)
+                    self.steer = float(steer)
                     abs_steer = np.abs(steer)
                     speed = 25.0 - abs_steer * 0.8
-                    cmd.speed = float(np.clip(speed, 10.0, 25.0))
+                    self.speed = float(np.clip(speed, 10.0, 25.0))
 
         #신호등 판단
         elif self.traffic_mode:
             #빨강,노란불 일 시 정지
             if self.signal in ["3_RED", "3_YELLOW", "4_RED", "4_YELLOW"]:
-                cmd.angle = 0.0
-                cmd.speed  = 0.0
+                self.steer = 0.0
+                self.speed  = 0.0
             #좌회전 신호일 떄 경찰차가 없다면 후진 후 좌회전 있다면 정지
             elif self.signal == "4_LEFT":
                 if self.left_turn_time is None:
@@ -281,16 +281,16 @@ class State(Node):
                         self.left_turning = True
                     else:
                         print("경찰차잇음")
-                        cmd.angle = 0.0
-                        cmd.speed  = 0.0
+                        self.steer = 0.0
+                        self.speed  = 0.0
                 else:
                     elapsed = (self.get_clock().now() - self.left_turn_time).nanoseconds / 1e9
                     if elapsed < 0.3:
-                        cmd.angle = 0.0
-                        cmd.speed = -30.0
+                        self.steer = 0.0
+                        self.speed = -30.0
                     elif elapsed < 0.3 + 1.2:
-                        cmd.angle = -200.0
-                        cmd.speed = 30.0                     
+                        self.steer = -200.0
+                        self.speed = 30.0                     
                     else:
                         print("좌회전 완료")
                         self.traffic_mode   = False
@@ -304,8 +304,8 @@ class State(Node):
                         self.left_traffic=True
                         self.short_lane=self.get_clock().now()
             else:
-                cmd.angle = self.steer
-                cmd.speed  = 0.0
+                self.steer = self.steer
+                self.speed  = 0.0
                 
 
         #레인 일반 주행
@@ -317,16 +317,16 @@ class State(Node):
 
             #첫 레인 들어갔을 떄 조향 보정을 위해 잠시 느린 속도로 주행
             if self.count <= 12:
-                cmd.speed  = 10.0
-                cmd.angle = -25.0
+                self.speed  = 5.0
+                self.steer = -15.0
                 self.count += 1
             #지름길에서 나올 수 있을떄 일정시간 좌회전
             elif self.left_rot_doing:
                 print("지름길 좌회전 시작")
                 elapsed = (self.get_clock().now() - self.left_rot_start_time).nanoseconds / 1e9
                 if elapsed < 4.5:
-                    cmd.angle = -100.0
-                    cmd.speed  = 5.0
+                    self.steer = -49.0
+                    self.speed  = 5.0
                     print(f"좌회전 중... {elapsed:.1f}초")
                 else:
                     self.left_rot_doing = False
@@ -345,109 +345,115 @@ class State(Node):
                     # 사람 감지 → 최우선 정지
                     # cmd.angle = 0.0
                     # cmd.speed  = 0.0
-                    cmd.angle = self.steer
-                    cmd.speed  = 20*self.KMH_TO_CODE
+                    self.steer  = self.steer
+                    self.speed  = 12*self.KMH_TO_CODE
 
                 elif self.overtake_active:
                     # ── [추가] 추월 중 (CHANGE / CHASE) ────────────────
                     # lane 코드가 계산한 조향(self.steer)과
                     # FSM 속도(self.overtake_speed)를 그대로 사용
-                    cmd.angle = float(self.steer)
-                    cmd.speed  = float(self.overtake_speed)
+                    self.steer  = float(self.steer)
+                    self.speed  = float(self.overtake_speed)
 
                 elif self.car:
                     # 추월 대상 감지됐지만 아직 FSM이 NORMAL인 구간
                     # (CHASE 진입 전 감속 구간)
-                    cmd.angle = float(self.steer)
+                    self.steer  = float(self.steer)
                     abs_steer = np.abs(self.steer)
                     if abs_steer <= 2:
-                        cmd.speed = 18.0
+                        self.speed = 14.0
                     else:
-                        speed = 16.0 - abs_steer * 0.1
-                        cmd.speed = float(np.clip(speed, 7.0, 16.0))
+                        speed = 10.0 - abs_steer * 0.1
+                        self.speed = float(np.clip(speed, 5.0, 10.0))
                 else:
                     # 기본 차선 주행
                     abs_prev_steer=np.abs(self.prev_steer-self.steer)
-                    cmd.angle = float(self.steer)
+                    self.steer  = float(self.steer)
                     if self.child:
-                        cmd.speed = 16.0
+                        self.speed = 9.0
                     elif (not self.left_done) and (self.left_obstacles == False) and self.traffic_light_detected:
-                        cmd.angle = 0.0
-                        cmd.speed = 0.0
+                        self.steer  = 0.0
+                        self.speed = 0.0
                         print("경찰차 없을떄 초록불 감지")
                     elif self.left_traffic:
                         abs_steer = np.abs(self.steer)
                         short_time=(self.get_clock().now()-self.short_lane).nanoseconds / 1e9
                         if short_time<=0.7:
                             if abs_steer <= 10.0 and abs(self.center_error) <= 100.0:
-                                cmd.speed = 25 * self.KMH_TO_CODE
+                                self.speed = 25 * self.KMH_TO_CODE
                             else:
-                                cmd.speed = 18 * self.KMH_TO_CODE
+                                self.speed= 18 * self.KMH_TO_CODE
                         elif short_time<=4.0:
                             if abs_steer <= 5.0 :
-                                cmd.speed=self.SPD_STRAIGHT
+                                self.speed=self.SPD_STRAIGHT
                             elif abs_steer <= 15.0:
-                                cmd.speed=self.SPD_NEAR_STR
+                                self.speed=self.SPD_NEAR_STR
                             else:
                                 target_speed = 25.0 - abs_steer * (0.3)
                                 speed = target_speed
-                                cmd.speed = float(np.clip(speed, 15.0, 25.0))
+                                self.speed = float(np.clip(speed, 15.0, 25.0))
                         else:
                             speed=18*self.KMH_TO_CODE
-                            cmd.speed=float(speed)
+                            self.speed=float(speed)
                     else:
                         abs_steer = np.abs(self.steer)
-                        # 진짜 직진 조건: curve_score 낮고 steer도 작아야 함
-                        abs_center_error = np.abs(self.center_error)
 
-                        # 급커브거나 큰 조향이 나오면, 잠깐 고속 금지
-                        if self.curve_score >= 30.0 or abs_steer >= 40.0 or abs_center_error>100.0:
-                            self.curve_cooldown = 30
-
-                        if (self.curve_score <= 10.0
-                                and abs_steer <= 15.0
-                                and abs_center_error<=100.0
-                                and abs_prev_steer<=7.0
-                                and self.curve_cooldown == 0):
-                            self.straight_count += 1
+                        if abs_steer>=30.0:
+                            self.speed=7.0
                         else:
-                            self.straight_count = 0
+                            self.speed=10.0
+                        # abs_steer = np.abs(self.steer)
+                        # # 진짜 직진 조건: curve_score 낮고 steer도 작아야 함
+                        # abs_center_error = np.abs(self.center_error)
 
-                        if self.curve_cooldown > 0:
-                            self.curve_cooldown -= 1
+                        # # 급커브거나 큰 조향이 나오면, 잠깐 고속 금지
+                        # if self.curve_score >= 30.0 or abs_steer >= 40.0 or abs_center_error>100.0:
+                        #     self.curve_cooldown = 30
 
-                        # 속도 결정
-                        if self.straight_count >= 3 and self.curve_cooldown == 0:
-                            # if abs_prev_steer<=7.0 and abs_center_error<=100.0:
-                            cmd.speed = self.SPD_STRAIGHT
-                            # else:
-                            # cmd.speed = 22.0*self.KMH_TO_CODE
+                        # if (self.curve_score <= 10.0
+                        #         and abs_steer <= 15.0
+                        #         and abs_center_error<=100.0
+                        #         and abs_prev_steer<=7.0
+                        #         and self.curve_cooldown == 0):
+                        #     self.straight_count += 1
+                        # else:
+                        #     self.straight_count = 0
 
-                        #elif self.curve_score <= 15.0 and abs_steer <= 7.0 and self.curve_cooldown == 0:
-                        elif self.curve_score <= 15.0 and abs_steer <= 7.0:
-                            # if abs_prev_steer<=7.0 and abs_center_error<=100.0:
-                            cmd.speed = self.SPD_NEAR_STR
-                            # else:
-                            # cmd.speed = 22.0*self.KMH_TO_CODE
+                        # if self.curve_cooldown > 0:
+                        #     self.curve_cooldown -= 1
 
-                        #elif self.curve_score <= 18.0 and abs_steer <= 10.0 and self.curve_cooldown == 0:
-                        elif self.curve_score <= 18.0 and abs_steer <= 10.0:
-                            # if abs_prev_steer<=7.0 and abs_center_error<=100.0:
-                            cmd.speed = self.SPD_NEAR 
-                            # else:
-                            #     cmd.speed = 22.0*self.KMH_TO_CODE
-                                # target_speed = self.SPD_SHARP_TOP - abs_steer * self.SHARP_K
-                                # speed = target_speed
-                                # cmd.speed = float(np.clip(speed, self.MIN_SPEED, self.SPD_SHARP_TOP))
+                        # # 속도 결정
+                        # if self.straight_count >= 3 and self.curve_cooldown == 0:
+                        #     # if abs_prev_steer<=7.0 and abs_center_error<=100.0:
+                        #     cmd.speed = self.SPD_STRAIGHT
+                        #     # else:
+                        #     # cmd.speed = 22.0*self.KMH_TO_CODE
 
-                        else:
-                            target_speed = self.SPD_SHARP_TOP - abs_steer * self.SHARP_K
-                            speed = target_speed
-                            cmd.speed = float(np.clip(speed, self.MIN_SPEED, self.SPD_SHARP_TOP))
+                        # #elif self.curve_score <= 15.0 and abs_steer <= 7.0 and self.curve_cooldown == 0:
+                        # elif self.curve_score <= 15.0 and abs_steer <= 7.0:
+                        #     # if abs_prev_steer<=7.0 and abs_center_error<=100.0:
+                        #     cmd.speed = self.SPD_NEAR_STR
+                        #     # else:
+                        #     # cmd.speed = 22.0*self.KMH_TO_CODE
+
+                        # #elif self.curve_score <= 18.0 and abs_steer <= 10.0 and self.curve_cooldown == 0:
+                        # elif self.curve_score <= 18.0 and abs_steer <= 10.0:
+                        #     # if abs_prev_steer<=7.0 and abs_center_error<=100.0:
+                        #     cmd.speed = self.SPD_NEAR 
+                        #     # else:
+                        #     #     cmd.speed = 22.0*self.KMH_TO_CODE
+                        #         # target_speed = self.SPD_SHARP_TOP - abs_steer * self.SHARP_K
+                        #         # speed = target_speed
+                        #         # cmd.speed = float(np.clip(speed, self.MIN_SPEED, self.SPD_SHARP_TOP))
+
+                        # else:
+                        #     target_speed = self.SPD_SHARP_TOP - abs_steer * self.SHARP_K
+                        #     speed = target_speed
+                        #     cmd.speed = float(np.clip(speed, self.MIN_SPEED, self.SPD_SHARP_TOP))
                 self.prev_steer=self.steer
 
-        cmd.angle = float(cmd.angle)
-        cmd.speed  = float(cmd.speed)
+        # cmd = Float32MultiArray()
+        cmd.data = [float(self.steer), float(self.speed)]
         self.state_pub.publish(cmd)
 
 

@@ -1084,20 +1084,20 @@ class LaneDetectionNode(Node):
     def _straight_calc(self):
         m, x_coords, _ = self._get_polyfit_m(0.58)
         if np.abs(m) >= 0.4:
-            self.steer = float(np.clip(m * 170, -99, 99)); self.max_step = 70; self.alpha = 0.75
+            self.steer = float(np.clip(m * 85, -51, 51)); self.max_step = 70; self.alpha = 0.75
         elif np.abs(m) >= 0.3:
-            self.steer = float(np.clip(m * 160, -95, 95)); self.max_step = 65; self.alpha = 0.75
+            self.steer = float(np.clip(m * 75, -50, 50)); self.max_step = 65; self.alpha = 0.75
         elif np.abs(m) >= 0.2:
-            self.steer = float(np.clip(m * 155, -95, 95)); self.max_step = 60; self.alpha = 0.75
+            self.steer = float(np.clip(m * 65, -50, 50)); self.max_step = 60; self.alpha = 0.75
         elif np.abs(m) >= 0.1:
-            self.steer = float(np.clip(m * 150, -90, 90)); self.max_step = 55; self.alpha = 0.75
+            self.steer = float(np.clip(m * 55, -40, 40)); self.max_step = 55; self.alpha = 0.75
         elif np.abs(m) >= 0.07:
-            self.steer = float(np.clip(m * 100, -85, 85)); self.max_step = 40; self.alpha = 0.75
+            self.steer = float(np.clip(m * 30, -35, 35)); self.max_step = 40; self.alpha = 0.75
         elif -0.04 <= m <= 0.04:
             error = np.mean(x_coords) - self.target
             s = (m * 180.0) + (error * 0.08)
             self.steer = 0.0 if abs(error) < 30 else error / 7
-            self.steer = float(np.clip(self.steer, -3, 3))
+            self.steer = float(np.clip(self.steer, -20, 20))
         else:
             self.steer = float(m * 20 / 0.1); self.max_step = 40
 
@@ -1105,17 +1105,17 @@ class LaneDetectionNode(Node):
     def _curve_calc(self):
         m, x_coords, _ = self._get_polyfit_m(0.6)
         if np.abs(m) >= 0.4:
-            self.steer = float(np.clip(m * 170, -99, 99)); self.max_step = 70; self.alpha = 0.75
+            self.steer = float(np.clip(m * 80, -51, 51)); self.max_step = 70; self.alpha = 0.75
         elif np.abs(m) >= 0.3:
-            self.steer = float(np.clip(m * 160, -99, 99)); self.max_step = 60; self.alpha = 0.75
+            self.steer = float(np.clip(m * 70, -50, 50)); self.max_step = 60; self.alpha = 0.75
         elif np.abs(m) >= 0.2:
-            self.steer = float(np.clip(m * 155, -95, 95)); self.max_step = 60; self.alpha = 0.75
+            self.steer = float(np.clip(m * 60, -45, 45)); self.max_step = 60; self.alpha = 0.75
         elif np.abs(m) >= 0.1:
-            self.steer = float(np.clip(m * 150, -90, 90)); self.max_step = 55; self.alpha = 0.75
+            self.steer = float(np.clip(m * 50, -40, 40)); self.max_step = 55; self.alpha = 0.75
         elif -0.04 <= m <= 0.04:
             error = np.mean(x_coords) - self.target
             self.steer = 0.0 if abs(error) < 40 else error / 7
-            self.steer = float(np.clip(self.steer, -99, 99))
+            self.steer = float(np.clip(self.steer, -50, 50))
         else:
             self.steer = float(m * 15 / 0.1); self.max_step = 40
 
@@ -1134,20 +1134,20 @@ class LaneDetectionNode(Node):
         m = -(2 * a * target_y + b)
         self._update_steer_inputs(x_coords, target_y, m, a)
         if np.abs(m) >= 0.4:
-            self.steer = float(np.clip(m * 170, -99, 99)); self.max_step = 70; self.alpha = 0.75
+            self.steer = float(np.clip(m * 85, -51, 51)); self.max_step = 70; self.alpha = 0.75
         elif np.abs(m) >= 0.3:
-            self.steer = float(np.clip(m * 160, -95, 95)); self.max_step = 65; self.alpha = 0.75
+            self.steer = float(np.clip(m * 75, -50, 50)); self.max_step = 65; self.alpha = 0.75
         elif np.abs(m) >= 0.2:
-            self.steer = float(np.clip(m * 155, -95, 95)); self.max_step = 60; self.alpha = 0.75
+            self.steer = float(np.clip(m * 65, -50, 50)); self.max_step = 60; self.alpha = 0.75
         elif np.abs(m) >= 0.1:
-            self.steer = float(np.clip(m * 150, -90, 90)); self.max_step = 55; self.alpha = 0.75
+            self.steer = float(np.clip(m * 55, -40, 40)); self.max_step = 55; self.alpha = 0.75
         elif np.abs(m) >= 0.07:
-            self.steer = float(np.clip(m * 100, -85, 85)); self.max_step = 40; self.alpha = 0.75
+            self.steer = float(np.clip(m * 30, -35, 35)); self.max_step = 40; self.alpha = 0.75
         elif -0.04 <= m <= 0.04:
             error = np.mean(x_coords) - self.target
             s = (m * 180.0) + (error * 0.08)
             self.steer = 0.0 if abs(error) < 30 else error / 7
-            self.steer = float(np.clip(self.steer, -3, 3))
+            self.steer = float(np.clip(self.steer, -20, 20))
         else:
             self.steer = float(m * 20 / 0.1); self.max_step = 40
 
@@ -1168,20 +1168,20 @@ class LaneDetectionNode(Node):
         m = -(2 * a * target_y + b)
         self._update_steer_inputs(x_coords, target_y, m, a)
         if np.abs(m) >= 0.4:
-            self.steer = float(np.clip(m * 170, -99, 99)); self.max_step = 70; self.alpha = 0.75
+            self.steer = float(np.clip(m * 85, -51, 51)); self.max_step = 70; self.alpha = 0.75
         elif np.abs(m) >= 0.3:
-            self.steer = float(np.clip(m * 160, -95, 95)); self.max_step = 65; self.alpha = 0.75
+            self.steer = float(np.clip(m * 75, -50, 50)); self.max_step = 65; self.alpha = 0.75
         elif np.abs(m) >= 0.2:
-            self.steer = float(np.clip(m * 155, -95, 95)); self.max_step = 60; self.alpha = 0.75
+            self.steer = float(np.clip(m * 65, -50, 50)); self.max_step = 60; self.alpha = 0.75
         elif np.abs(m) >= 0.1:
-            self.steer = float(np.clip(m * 150, -90, 90)); self.max_step = 55; self.alpha = 0.75
+            self.steer = float(np.clip(m * 55, -40, 40)); self.max_step = 55; self.alpha = 0.75
         elif np.abs(m) >= 0.07:
-            self.steer = float(np.clip(m * 100, -85, 85)); self.max_step = 40; self.alpha = 0.75
+            self.steer = float(np.clip(m * 30, -35, 35)); self.max_step = 40; self.alpha = 0.75
         elif -0.04 <= m <= 0.04:
             error = np.mean(x_coords) - self.target
             s = (m * 180.0) + (error * 0.08)
             self.steer = 0.0 if abs(error) < 30 else error / 7
-            self.steer = float(np.clip(self.steer, -3, 3))
+            self.steer = float(np.clip(self.steer, -20, 20))
         else:
             self.steer = float(m * 20 / 0.1); self.max_step = 40
 
@@ -1241,19 +1241,19 @@ class LaneDetectionNode(Node):
         m = -(2 * a * target_y + b)
         self._update_steer_inputs(x_coords, target_y, m, a)
         if m <= -0.35:
-            self.steer = float(np.clip(m * 170, -99, 0));  self.max_step = 85; self.alpha = 0.85
+            self.steer = float(np.clip(m * 90, -51, 0));  self.max_step = 85; self.alpha = 0.85
         elif m >= 0.25:
-            self.steer = float(np.clip(m * 165, 0,  99));  self.max_step = 80; self.alpha = 0.85
+            self.steer = float(np.clip(m * 85, 0,  51));  self.max_step = 80; self.alpha = 0.85
         elif m <= -0.25:
-            self.steer = float(np.clip(m * 160, -99, 0));  self.max_step = 75; self.alpha = 0.85
+            self.steer = float(np.clip(m * 85, -51, 0));  self.max_step = 75; self.alpha = 0.85
         elif np.abs(m) >= 0.2:
-            self.steer = float(np.clip(m * 155, -99, 99)); self.max_step = 75; self.alpha = 0.85
+            self.steer = float(np.clip(m * 75, -45, 45)); self.max_step = 75; self.alpha = 0.85
         elif np.abs(m) >= 0.07:
-            self.steer = float(np.clip(m * 150, -92, 92)); self.max_step = 68; self.alpha = 0.85
+            self.steer = float(np.clip(m * 65, -45, 45)); self.max_step = 68; self.alpha = 0.85
         elif -0.04 <= m <= 0.04:
             error = np.mean(x_coords) - self.target
             self.steer = 0.0 if abs(error) < 30 else error / 7
-            self.steer = float(np.clip(self.steer, -99, 99))
+            self.steer = float(np.clip(self.steer, -50, 50))
         else:
             self.steer = float(m * 20 / 0.1); self.max_step = 40
         self.lane_state = True
@@ -1274,19 +1274,19 @@ class LaneDetectionNode(Node):
         m = -(2 * a * target_y + b)
         self._update_steer_inputs(x_coords, target_y, m, a)
         if m >= 0.35:
-            self.steer = float(np.clip(m * 170, 0,  99));  self.max_step = 85; self.alpha = 0.85
+            self.steer = float(np.clip(m * 90, 0,  51));  self.max_step = 85; self.alpha = 0.85
         elif m <= -0.25:
-            self.steer = float(np.clip(m * 165, -99, 0));  self.max_step = 80; self.alpha = 0.85
+            self.steer = float(np.clip(m * 85, -51, 0));  self.max_step = 80; self.alpha = 0.85
         elif m >= 0.25:
-            self.steer = float(np.clip(m * 160, 0,  95));  self.max_step = 70; self.alpha = 0.85
+            self.steer = float(np.clip(m * 85, 0,  51));  self.max_step = 70; self.alpha = 0.85
         elif np.abs(m) >= 0.2:
-            self.steer = float(np.clip(m * 155, -99, 99)); self.max_step = 72; self.alpha = 0.85
+            self.steer = float(np.clip(m * 75, -45, 45)); self.max_step = 72; self.alpha = 0.85
         elif np.abs(m) >= 0.07:
-            self.steer = float(np.clip(m * 150, -92, 92)); self.max_step = 64; self.alpha = 0.85
+            self.steer = float(np.clip(m * 65, -45, 45)); self.max_step = 64; self.alpha = 0.85
         elif -0.04 <= m <= 0.04:
             error = np.mean(x_coords) - self.target
             self.steer = 0.0 if abs(error) < 30 else error / 7
-            self.steer = float(np.clip(self.steer, -99, 99))
+            self.steer = float(np.clip(self.steer, -50, 50))
         else:
             self.steer = float(m * 20 / 0.1); self.max_step = 40
         self.lane_state = True
