@@ -4,7 +4,7 @@
 
 # 🚗 제9회 국민대학교 자율주행 경진대회
 
-### Team Name
+### Team DuDu
 
 🏁 Final Round : 2025.08.25
 
