@@ -8,7 +8,8 @@ from geometry_msgs.msg import Point
 from std_msgs.msg import Bool
 from std_msgs.msg import String
 import numpy as np
-from xycar_msgs.msg import XycarMotor
+from std_msgs.msg import Float32MultiArray
+# from xycar_msgs.msg import XycarMotor
 from nav_msgs.msg import Path
 from track_drive.pp_jm import PurePursuit
 
@@ -17,7 +18,7 @@ class State(Node):
     def __init__(self):
         super().__init__('state_node')
 
-        self.state_pub = self.create_publisher(XycarMotor, "/xycar_motor", 10)
+        self.state_pub = self.create_publisher(Float32MultiArray, "/xycar_motor", 10)
         self.car_pub   = self.create_publisher(Bool, '/car_lane', 10)
         self.left_done_pub = self.create_publisher(Bool, '/left_turn_done', 10)
 
@@ -222,7 +223,7 @@ class State(Node):
     # ── 메인 상태 함수 ─────────────────────────────────────────────────
 
     def state_function(self):
-        cmd = XycarMotor()
+        cmd = Float32MultiArray()
         #라바콘 부분 pp
         if self.pp_mode:
             #신호등 노란불,빨간불일떄 정지

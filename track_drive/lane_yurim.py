@@ -614,6 +614,56 @@ class LaneDetectionNode(Node):
 
         self.birdeyeview()
 
+    def build_yellow_virtual_line(self, binary_lane_y):
+        num, labels, stats, centroids = cv2.connectedComponentsWithStats(
+            binary_lane_y, connectivity=8
+        )
+
+        points = []
+
+        for i in range(1, num):
+            x, y, w, h, area = stats[i]
+
+            # 노이즈 제거
+            if area < 25:
+                continue
+
+            # 너무 큰 노란 영역 제거
+            if area > 2500:
+                continue
+
+            # 노란 점선은 너무 넓으면 안 됨
+            if w > 90:
+                continue
+
+            cx, cy = centroids[i]
+            points.append((cx, cy))
+
+        if len(points) < 3:
+            return binary_lane_y
+
+        points = np.array(points)
+        ys = points[:, 1]
+        xs = points[:, 0]
+
+        fit = np.polyfit(ys, xs, 2)
+
+        virtual = np.zeros_like(binary_lane_y)
+
+        y_vals = np.linspace(0, self.bev_height - 1, 80)
+        x_vals = fit[0] * y_vals**2 + fit[1] * y_vals + fit[2]
+
+        pts = []
+        for x, y in zip(x_vals, y_vals):
+            if 0 <= x < self.bev_width:
+                pts.append([int(x), int(y)])
+
+        if len(pts) >= 2:
+            pts = np.array(pts, dtype=np.int32)
+            cv2.polylines(virtual, [pts], False, 255, thickness=5)
+
+        return cv2.bitwise_or(binary_lane_y, virtual)
+
     # ── BEV + 슬라이딩 윈도우 ─────────────────────────────────────────
     def birdeyeview(self):
         M = cv2.getPerspectiveTransform(self.src_points, self.dst_points)
@@ -629,28 +679,7 @@ class LaneDetectionNode(Node):
         binary_lane_y = self.remove_road_text(binary_lane_y)
 
         # 노란 점선 가상선 보강
-        yellow_virtual = np.zeros_like(binary_lane_y)
-        step = 40; min_pixels = 10; search = 60; max_jump = 40
-        points = []
-        base      = binary_lane_y[self.bev_height * 2 // 3:, :]
-        base_hist = np.sum(base, axis=0)
-        track_x   = int(np.argmax(base_hist)) if np.any(base_hist > 0) else self.bev_width // 2
-
-        for y in range(self.bev_height - step, 0, -step):
-            x_lo = max(0, track_x - search)
-            x_hi = min(self.bev_width, track_x + search)
-            roi  = binary_lane_y[y:y + step, x_lo:x_hi]
-            ys, xs = roi.nonzero()
-            if len(xs) >= min_pixels:
-                center_x = int(np.mean(xs)) + x_lo
-                if len(points) == 0 or abs(center_x - track_x) <= max_jump:
-                    center_y = y + step // 2
-                    points.append((center_x, center_y))
-                    track_x = center_x
-
-        for i in range(len(points) - 1):
-            cv2.line(yellow_virtual, points[i], points[i + 1], 255, 6)
-        binary_lane_y = cv2.bitwise_or(binary_lane_y, yellow_virtual)
+        binary_lane_y = self.build_yellow_virtual_line(binary_lane_y)
 
         self.img_bev_w = L_bev_w
         self.img_bev_y = L_bev_y
@@ -1093,15 +1122,69 @@ class LaneDetectionNode(Node):
     # ── 모드별 조향 함수 ───────────────────────────────────────────────
 
     # 직선 주행
-    def straight(self):
-        self._straight_calc()
+    def straight(self): #left-yellow / right-white
+        x_coords, y_coords = [], []
+        for i in self.target_indxs:
+            x_coords.append(self.left_centers[i] + self.lane_width / 2)
+            y_coords.append(self.bev_height
+                            - (i * self.window_height)
+                            - (self.window_height / 2))
+        a, b, c = np.polyfit(y_coords, x_coords, 2)
+        target_y = self.bev_height * 0.58
+        m = -(2 * a * target_y + b)
+        self._update_steer_inputs(x_coords, target_y, m, a)
+        if np.abs(m) >= 0.4:
+            self.steer = float(np.clip(m * 170, -99, 99)); self.max_step = 70; self.alpha = 0.75
+        elif np.abs(m) >= 0.3:
+            self.steer = float(np.clip(m * 160, -95, 95)); self.max_step = 65; self.alpha = 0.75
+        elif np.abs(m) >= 0.2:
+            self.steer = float(np.clip(m * 155, -95, 95)); self.max_step = 60; self.alpha = 0.75
+        elif np.abs(m) >= 0.1:
+            self.steer = float(np.clip(m * 150, -90, 90)); self.max_step = 55; self.alpha = 0.75
+        elif np.abs(m) >= 0.07:
+            self.steer = float(np.clip(m * 100, -85, 85)); self.max_step = 40; self.alpha = 0.75
+        elif -0.04 <= m <= 0.04:
+            error = np.mean(x_coords) - self.target
+            s = (m * 180.0) + (error * 0.08)
+            self.steer = 0.0 if abs(error) < 30 else error / 7
+            self.steer = float(np.clip(self.steer, -3, 3))
+        else:
+            self.steer = float(m * 20 / 0.1); self.max_step = 40
+
         self.lane_state = True
         self.publish_steer()
         self.publish_bool()
 
-    # 반대 차선 직선 주행
-    def straight2(self):
-        self._straight_calc()
+    # 반대 차선 직선 주행 
+    def straight2(self): #left-white / right-yellow
+        x_coords, y_coords = [], []
+        for i in self.target_indxs:
+            x_coords.append(self.right_centers[i] - self.lane_width / 2)
+            y_coords.append(self.bev_height
+                            - (i * self.window_height)
+                            - (self.window_height / 2))
+        a, b, c = np.polyfit(y_coords, x_coords, 2)
+        target_y = self.bev_height * 0.58
+        m = -(2 * a * target_y + b)
+        self._update_steer_inputs(x_coords, target_y, m, a)
+        if np.abs(m) >= 0.4:
+            self.steer = float(np.clip(m * 170, -99, 99)); self.max_step = 70; self.alpha = 0.75
+        elif np.abs(m) >= 0.3:
+            self.steer = float(np.clip(m * 160, -95, 95)); self.max_step = 65; self.alpha = 0.75
+        elif np.abs(m) >= 0.2:
+            self.steer = float(np.clip(m * 155, -95, 95)); self.max_step = 60; self.alpha = 0.75
+        elif np.abs(m) >= 0.1:
+            self.steer = float(np.clip(m * 150, -90, 90)); self.max_step = 55; self.alpha = 0.75
+        elif np.abs(m) >= 0.07:
+            self.steer = float(np.clip(m * 100, -85, 85)); self.max_step = 40; self.alpha = 0.75
+        elif -0.04 <= m <= 0.04:
+            error = np.mean(x_coords) - self.target
+            s = (m * 180.0) + (error * 0.08)
+            self.steer = 0.0 if abs(error) < 30 else error / 7
+            self.steer = float(np.clip(self.steer, -3, 3))
+        else:
+            self.steer = float(m * 20 / 0.1); self.max_step = 40
+
         self.lane_state = True
         self.publish_steer()
         self.publish_bool()
