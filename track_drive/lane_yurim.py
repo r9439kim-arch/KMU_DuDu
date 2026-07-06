@@ -1,13 +1,12 @@
+#!/usr/bin/env python3
 import cv2
 import numpy as np
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Float32, Bool, Int32
-from sensor_msgs.msg import Image
-from cv_bridge import CvBridge
 from geometry_msgs.msg import Point
 from rclpy.qos import qos_profile_sensor_data
-from xycar_msgs.msg import XycarMotor
+# from xycar_msgs.msg import XycarMotor
 
 
 left_fit_avg = None
@@ -300,10 +299,56 @@ class LaneDetectionNode(Node):
     def __init__(self):
         super().__init__('lane_detection_node')
 
-        # ── Subscriber ─────────────────────────────────────────────────
-        self.cam_sub = self.create_subscription(
-            Image, '/usb_cam/image_raw/front', self.cam_callback, 10)
+        # ── Camera (/dev/video0) ───────────────────────────────────────
+        # ROS Image subscriber를 사용하지 않고 OpenCV로 USB camera를 직접 읽는다.
+        # ── Camera (/dev/video0) ───────────────────────────────────────
+        # ROS Image subscriber를 사용하지 않고 OpenCV로 USB camera를 직접 읽는다.
+        # self.cap = cv2.VideoCapture(0)
+        # ==========================
+        # 입력 설정
+        # True  -> 영상 사용
+        # False -> USB 카메라 사용
+        # ==========================
+        USE_VIDEO = True
 
+        VIDEO_PATH = "/home/urim/test1.mp4"
+        CAMERA_ID = 0
+
+        # ==========================
+        # Camera / Video
+        # ==========================
+        if USE_VIDEO:
+            self.cap = cv2.VideoCapture(VIDEO_PATH)
+            source_name = VIDEO_PATH
+        else:
+            self.cap = cv2.VideoCapture(CAMERA_ID)
+            source_name = f"/dev/video{CAMERA_ID}"
+            
+
+        if not self.cap.isOpened():
+            self.get_logger().error(f"{source_name} 를 열 수 없습니다.")
+        else:
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            self.cap.set(cv2.CAP_PROP_FPS, 30)
+
+        if not self.cap.isOpened():
+            self.get_logger().error('카메라 /dev/video0 를 열 수 없습니다.')
+        else:
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            self.cap.set(cv2.CAP_PROP_FPS, 30)
+        if not self.cap.isOpened():
+            self.get_logger().error('카메라 /dev/video0 를 열 수 없습니다.')
+        else:
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            self.cap.set(cv2.CAP_PROP_FPS, 30)
+
+        # 30Hz로 video0 프레임을 읽어서 기존 차선 인식 파이프라인 실행
+        self.camera_timer = self.create_timer(1.0 / 30.0, self.video_callback)
+
+        # ── Subscriber ─────────────────────────────────────────────────
         self.mid_sub = self.create_subscription(
             Point, '/mid_point_xy', self.mid_callback, qos_profile_sensor_data)
 
@@ -313,8 +358,8 @@ class LaneDetectionNode(Node):
         self.car_l = self.create_subscription(
             Bool, '/car_lane', self.car_lane_callback, 10)
 
-        self.motor_sub = self.create_subscription(
-            XycarMotor, '/xycar_motor', self.motor_callback, 10)
+        # self.motor_sub = self.create_subscription(
+        #     XycarMotor, '/xycar_motor', self.motor_callback, 10)
 
         # ── Publisher ──────────────────────────────────────────────────
         # 일반 주행용
@@ -328,13 +373,11 @@ class LaneDetectionNode(Node):
         self.pub_overtake_active = self.create_publisher(Bool,    '/overtake_active', 10)
         self.pub_overtake_speed  = self.create_publisher(Float32, '/overtake_speed',  10)
 
-        self.bridge = CvBridge()
-
         self.src_points = np.float32([
-            [145, 295],
-            [10,  370],
-            [485, 295],
-            [630, 370]
+            [225, 280],
+            [15,  365],
+            [415, 280],
+            [625, 365]
         ])
         self.bev_width  = 640
         self.bev_height = 480
@@ -346,8 +389,8 @@ class LaneDetectionNode(Node):
         ])
 
         self.n_windows     = 12
-        self.margin        = 50
-        self.minpix        = 20
+        self.margin        = 40
+        self.minpix        = 15
         self.window_height = self.bev_height // self.n_windows
         self.target_indxs  = [2, 3, 5, 8, 9]
         self.steer         = 0.0
@@ -388,6 +431,8 @@ class LaneDetectionNode(Node):
         self.img_bev_y = None
         self.binary_w  = None
         self.binary_y  = None
+        self.canny_mask = None      # Original image 기준 Canny 결과
+        self.binary_edge = None     # BEV 변환된 Canny 결과
 
         self.left_start_color  = None
         self.right_start_color = None
@@ -439,6 +484,20 @@ class LaneDetectionNode(Node):
         self.YELLOW_MAX_LINE_W = 80
         self.YELLOW_MIN_BLOB   = 40
 
+        self.latest_hsv = None
+        self.clicked_hsv_text = "Click image to get HSV"
+        self.clicked_pos = None
+
+        cv2.namedWindow("Original")
+        cv2.setMouseCallback("Original", self.mouse_callback)
+
+        # ── Canny 디버그 창 + 트랙바 ─────────────────────────────────────
+        # HSV 기반 차선 색상 판단 로직은 그대로 유지하고,
+        # Canny는 임계값 튜닝용 디버그 화면으로만 사용한다.
+        cv2.namedWindow("Canny Edge")
+        cv2.createTrackbar("Low",  "Canny Edge", 50, 255, self._nothing)
+        cv2.createTrackbar("High", "Canny Edge", 150, 255, self._nothing)
+
         # BEV 변환 행렬
         src1 = np.float32([[202,286],[427,284],[635,435],[2,433]])
         dst1 = np.float32([
@@ -480,6 +539,58 @@ class LaneDetectionNode(Node):
         self.last_mid_stamp = now
         self.last_det_stamp = now
 
+    def mouse_callback(self, event, x, y, flags, param):
+        if event == cv2.EVENT_LBUTTONDOWN:
+            if self.latest_hsv is not None:
+                h, s, v = self.latest_hsv[y, x]
+                self.clicked_pos = (x, y)
+                self.clicked_hsv_text = f"x={x}, y={y}  HSV=({h}, {s}, {v})"
+
+    def _nothing(self, value):
+        # OpenCV trackbar 콜백용 더미 함수
+        pass
+
+    def show_canny_debug(self):
+        if not hasattr(self, 'frame') or self.frame is None:
+            return None
+
+        try:
+            low = cv2.getTrackbarPos("Low", "Canny Edge")
+            high = cv2.getTrackbarPos("High", "Canny Edge")
+        except cv2.error:
+            return None
+
+        # high 값이 low보다 작거나 같으면 Canny가 불안정해지므로 최소 1 이상 차이 나게 보정
+        if high <= low:
+            high = low + 1
+            if high > 255:
+                high = 255
+                low = 254
+            cv2.setTrackbarPos("Low", "Canny Edge", low)
+            cv2.setTrackbarPos("High", "Canny Edge", high)
+
+        gray = cv2.cvtColor(self.frame, cv2.COLOR_BGR2GRAY)
+        blur = cv2.GaussianBlur(gray, (5, 5), 0)
+        canny = cv2.Canny(blur, low, high)
+
+        # 이후 BEV/sliding_window에서 실제 차선 검출 입력으로 사용
+        self.canny_mask = canny
+
+        canny_display = cv2.cvtColor(canny, cv2.COLOR_GRAY2BGR)
+        cv2.putText(
+            canny_display,
+            f"Canny Low={low}, High={high}",
+            (20, 40),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (0, 255, 255),
+            2,
+            cv2.LINE_AA
+        )
+
+        cv2.imshow("Canny Edge", canny_display)
+        return canny
+
     # ── yellow_side (코드1 BEVLaneDetector.yellow_side 이식) ───────────
     def yellow_side(self, yellow_mask):
         """노란선이 BEV 기준 좌/우 어느 쪽인지 반환"""
@@ -515,17 +626,65 @@ class LaneDetectionNode(Node):
             side = 'right' if side == 'left' else 'left'
         return side
 
-    # ── 카메라 콜백 ────────────────────────────────────────────────────
-    def cam_callback(self, msg):
-        self.frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+    # ── video0 프레임 입력 ───────────────────────────────────────────────
+    def video_callback(self):
+        if not hasattr(self, 'cap') or self.cap is None or not self.cap.isOpened():
+            return
+
+        ret, frame = self.cap.read()
+        if not ret or frame is None:
+            self.get_logger().warn('video0 프레임을 읽지 못했습니다.')
+            return
+
+        self.process_frame(frame)
+
+    # ── 카메라 프레임 처리 ─────────────────────────────────────────────
+    def process_frame(self, frame):
+        self.frame = frame
         img_hsv = cv2.cvtColor(self.frame, cv2.COLOR_BGR2HSV)
 
-        lower_white = np.array([0,   0,   220])
-        upper_white = np.array([180, 30,  255])
+        self.latest_hsv = img_hsv
+
+        display_frame = self.frame.copy()
+
+        cv2.putText(
+            display_frame,
+            self.clicked_hsv_text,
+            (20, 40),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (0, 255, 255),
+            2,
+            cv2.LINE_AA
+        )
+
+        if self.clicked_pos is not None:
+            cv2.circle(display_frame, self.clicked_pos, 5, (0, 0, 255), -1)
+
+        cv2.imshow("Original", display_frame)
+
+        # Canny는 차선 색상 판단에는 사용하지 않고,
+        # 트랙바로 임계값을 조절하면서 엣지 상태만 확인한다.
+        self.show_canny_debug()
+
+        cv2.waitKey(1)
+
+        # 다음은 심한버전
+        # lower_white = np.array([45, 10, 80])
+        # upper_white = np.array([90, 40, 200])
+
+        # 다음은 완화버전
+        lower_white = np.array([0, 0, 130])
+        upper_white = np.array([179, 90, 255]) 
         mask_white  = cv2.inRange(img_hsv, lower_white, upper_white)
 
-        lower_yellow = np.array([18, 100, 100])
-        upper_yellow = np.array([35, 255, 255])
+        # 다음은 심한버전
+        # lower_yellow = np.array([18, 100, 100])
+        # upper_yellow = np.array([35, 255, 255])
+
+        # 다음은 완화버전
+        lower_yellow = np.array([15, 70, 80])
+        upper_yellow = np.array([40, 255, 255])
         mask_yellow  = cv2.inRange(img_hsv, lower_yellow, upper_yellow)
 
         mask_white  = cv2.GaussianBlur(mask_white,  (5, 5), 0)
@@ -629,11 +788,11 @@ class LaneDetectionNode(Node):
                 continue
 
             # 너무 큰 노란 영역 제거
-            if area > 2500:
+            if area > 2700:
                 continue
 
             # 노란 점선은 너무 넓으면 안 됨
-            if w > 90:
+            if w > 80:
                 continue
 
             cx, cy = centroids[i]
@@ -664,10 +823,47 @@ class LaneDetectionNode(Node):
 
         return cv2.bitwise_or(binary_lane_y, virtual)
 
+    def get_adaptive_src_points(self):
+        abs_steer = abs(self.prev_steer)
+
+        # 직진: 좁고 길게
+        src_straight = np.float32([
+            [230, 270],
+            [120, 420],
+            [410, 270],
+            [520, 420]
+        ])
+
+        # 완만한 커브
+        src_mild_curve = np.float32([
+            [210, 300],
+            [70,  410],
+            [430, 300],
+            [570, 410]
+        ])
+
+        # 급커브: 넓고 짧게
+        src_sharp_curve = np.float32([
+            [190, 320],
+            [40,  430],
+            [450, 320],
+            [600, 430]
+        ])
+
+        if abs_steer >= 30:
+            return src_sharp_curve
+        elif abs_steer >= 15:
+            return src_mild_curve
+        else:
+            return src_straight
+
     # ── BEV + 슬라이딩 윈도우 ─────────────────────────────────────────
     def birdeyeview(self):
-        M = cv2.getPerspectiveTransform(self.src_points, self.dst_points)
+        # M = cv2.getPerspectiveTransform(self.src_points, self.dst_points)
+        src_points = self.get_adaptive_src_points()
+        M = cv2.getPerspectiveTransform(src_points, self.dst_points)
 
+        # 1) HSV 마스크는 차선 색상 판단용으로 유지
         L_bev_w = cv2.warpPerspective(self.result_w, M,
                                       (self.bev_width, self.bev_height))
         _, binary_lane_w = cv2.threshold(L_bev_w, 120, 255, cv2.THRESH_BINARY)
@@ -675,24 +871,76 @@ class LaneDetectionNode(Node):
         L_bev_y = cv2.warpPerspective(self.result_y, M,
                                       (self.bev_width, self.bev_height))
         _, binary_lane_y = cv2.threshold(L_bev_y, 120, 255, cv2.THRESH_BINARY)
-
         binary_lane_y = self.remove_road_text(binary_lane_y)
 
+        # 2) 실제 차선 검출/sliding window 입력은 Canny 기반으로 사용
+        if self.canny_mask is None:
+            gray = cv2.cvtColor(self.frame, cv2.COLOR_BGR2GRAY)
+            blur = cv2.GaussianBlur(gray, (10, 10), 0)
+            self.canny_mask = cv2.Canny(blur, 50, 150)
+
+        L_bev_edge = cv2.warpPerspective(self.canny_mask, M,
+                                         (self.bev_width, self.bev_height))
+        _, binary_edge = cv2.threshold(L_bev_edge, 120, 255, cv2.THRESH_BINARY)
+
+        # Canny는 얇은 edge라 sliding window가 너무 끊기지 않도록 살짝 두껍게 만든다.
+        edge_kernel = np.ones((5, 5), np.uint8)
+        binary_edge = cv2.dilate(binary_edge, edge_kernel, iterations=1)
+
         # 노란 점선 가상선 보강
-        binary_lane_y = self.build_yellow_virtual_line(binary_lane_y)
+        yellow_virtual = np.zeros_like(binary_lane_y)
+        step = 40; min_pixels = 10; search = 60; max_jump = 40
+        points = []
+        base      = binary_lane_y[self.bev_height * 2 // 3:, :]
+        base_hist = np.sum(base, axis=0)
+        track_x   = int(np.argmax(base_hist)) if np.any(base_hist > 0) else self.bev_width // 2
+
+        for y in range(self.bev_height - step, 0, -step):
+            x_lo = max(0, track_x - search)
+            x_hi = min(self.bev_width, track_x + search)
+            roi  = binary_lane_y[y:y + step, x_lo:x_hi]
+            ys, xs = roi.nonzero()
+            if len(xs) >= min_pixels:
+                center_x = int(np.mean(xs)) + x_lo
+                if len(points) == 0 or abs(center_x - track_x) <= max_jump:
+                    center_y = y + step // 2
+                    points.append((center_x, center_y))
+                    track_x = center_x
+
+        for i in range(len(points) - 1):
+            cv2.line(yellow_virtual, points[i], points[i + 1], 255, 6)
+        binary_lane_y = cv2.bitwise_or(binary_lane_y, yellow_virtual)
 
         self.img_bev_w = L_bev_w
         self.img_bev_y = L_bev_y
+
+        # 색상 판단용 HSV BEV 마스크
         self.binary_w  = binary_lane_w
         self.binary_y  = binary_lane_y
-        self.binary    = cv2.bitwise_or(self.binary_w, self.binary_y)
+
+        # HSV로 검출된 흰색/노란색 차선 영역만 허용
+        lane_color_mask = cv2.bitwise_or(binary_lane_w, binary_lane_y)
+
+        # Canny edge가 차선 마스크와 약간 어긋날 수 있으므로 확장
+        color_kernel = np.ones((9, 9), np.uint8)
+        lane_color_mask = cv2.dilate(lane_color_mask, color_kernel, iterations=1)
+
+        # Canny edge 중에서 차선 색상 근처 edge만 사용
+        binary_edge = cv2.bitwise_and(binary_edge, lane_color_mask)
+
+        self.binary_edge = binary_edge
+        self.binary = self.binary_edge
+
+        # 차선 검출용 binary는 Canny BEV를 사용
+        self.binary_edge = binary_edge
+        self.binary = self.binary_edge
 
         self.histogram(self.binary)
 
     # 차선 시작 위치 탐색
     def histogram(self, pro_img):
         height = pro_img.shape[0]
-        partial_total = pro_img[height * 1 // 3:, :]
+        partial_total = pro_img[height * 1 // 2:, :]
 
         hist_total = np.sum(partial_total, axis=0)
         self.left_start  = int(np.argmax(hist_total[:self.bev_width // 2])) - 10 \
@@ -709,16 +957,23 @@ class LaneDetectionNode(Node):
 
     # 차선 색상 판별
     def get_lane_color(self, x, y_low, y_high):
-        margin = 30
-        x1 = max(0, x - margin)
-        x2 = min(self.bev_width, x + margin)
-        roi_w = self.binary_w[y_low:y_high, x1:x2]
-        roi_y = self.binary_y[y_low:y_high, x1:x2]
+        """Canny로 검출된 차선 위치(x 주변)의 HSV BEV 마스크를 보고 색상 판단."""
+        margin = 35
+        x1 = max(0, int(x) - margin)
+        x2 = min(self.bev_width, int(x) + margin)
+        y1 = max(0, int(y_low))
+        y2 = min(self.bev_height, int(y_high))
+
+        roi_w = self.binary_w[y1:y2, x1:x2]
+        roi_y = self.binary_y[y1:y2, x1:x2]
+
         white_count  = cv2.countNonZero(roi_w)
         yellow_count = cv2.countNonZero(roi_y)
-        if yellow_count > white_count and yellow_count > 30:
+
+        # Canny 중심 주변에서 더 많이 보이는 HSV 색상을 차선 색으로 사용
+        if yellow_count > white_count and yellow_count > 15:
             return 'yellow'
-        elif white_count > yellow_count and white_count > 50:
+        elif white_count > yellow_count and white_count > 20:
             return 'white'
         return 'unknown'
 
@@ -830,6 +1085,15 @@ class LaneDetectionNode(Node):
         right_mean = np.mean(self.right_centers)
         lane_gap   = abs(left_mean - right_mean)
 
+        if lane_gap < 180 or lane_gap > 420:
+            self.steer = self.prev_steer
+            self.lane_state = False
+            self.publish_steer()
+            self.publish_bool()
+            return
+
+        # Sliding Window 결과 보기
+        cv2.imshow("Sliding Window", debug_img)
         cv2.waitKey(1)
 
         # ── 추월 FSM 우선 분기 ────────────────────────────────────────
@@ -876,14 +1140,17 @@ class LaneDetectionNode(Node):
             else:
                 raw_mode = 'curve'
         elif left_color == 'yellow' and right_color == 'yellow':
-            raw_mode = 'school_zone'
-            self.child = True
+            # raw_mode = 'school_zone'
+            # self.child = True
+            raw_mode = 'curve'
         elif left_color == 'unknown' and right_color == 'yellow':
-            raw_mode = 'school_zone'
-            self.child = True
+            # raw_mode = 'school_zone'
+            # self.child = True
+            raw_mode = 'straight2'
         elif left_color == 'yellow' and right_color == 'unknown':
-            raw_mode = 'school_zone'
-            self.child = True
+            # raw_mode = 'school_zone'
+            # self.child = True
+            raw_mode = 'straight'
         else:
             raw_mode = 'straight'
 
@@ -966,8 +1233,8 @@ class LaneDetectionNode(Node):
             self.straight2()
         elif self.mode == 'curve':
             self.curve()
-        elif self.mode == 'school_zone':
-            self.school_zone()
+        # elif self.mode == 'school_zone':
+        #     self.school_zone()
 
     # ── Publish 함수들 ─────────────────────────────────────────────────
 
@@ -1050,7 +1317,7 @@ class LaneDetectionNode(Node):
 
     def publish_center_error(self):
         msg = Float32()
-        print(f"center_error: {self.center_error}")
+        # print(f"center_error: {self.center_error}")
         msg.data = float(self.center_error)
         if self.mode=='curve':
             msg.data=0.0
@@ -1122,7 +1389,7 @@ class LaneDetectionNode(Node):
     # ── 모드별 조향 함수 ───────────────────────────────────────────────
 
     # 직선 주행
-    def straight(self): #left-yellow / right-white
+    def straight(self):
         x_coords, y_coords = [], []
         for i in self.target_indxs:
             x_coords.append(self.left_centers[i] + self.lane_width / 2)
@@ -1155,8 +1422,8 @@ class LaneDetectionNode(Node):
         self.publish_steer()
         self.publish_bool()
 
-    # 반대 차선 직선 주행 
-    def straight2(self): #left-white / right-yellow
+    # 반대 차선 직선 주행
+    def straight2(self):
         x_coords, y_coords = [], []
         for i in self.target_indxs:
             x_coords.append(self.right_centers[i] - self.lane_width / 2)
@@ -1197,35 +1464,35 @@ class LaneDetectionNode(Node):
         self.publish_bool()
 
     # 어린이 보호구역 주행 
-    def school_zone(self):
-        self.max_step = 25
-        self.alpha    = 0.3
-        x_coords, y_coords = [], []
-        for i in self.target_indxs:
-            x_coords.append((self.left_centers[i] + self.right_centers[i]) / 2)
-            y_coords.append(self.bev_height
-                            - (i * self.window_height)
-                            - (self.window_height / 2))
-        x_coords, y_coords = self.filter_straight_outliers(x_coords, y_coords,
-                                                           slope_band=0.15)
-        if len(x_coords) < 3:
-            self.lane_state = True
-            self.publish_steer()
-            self.publish_bool()
-            return
-        a, b, c = np.polyfit(y_coords, x_coords, 2)
-        target_y = self.bev_height * 0.85
-        m = -(2 * a * target_y + b)
-        if -0.04 <= m <= 0.04:
-            error = np.mean(x_coords) - self.target
-            self.steer = 0.0 if abs(error) < 40 else error / 7
-            self.steer = float(np.clip(self.steer, -10, 10))
-        else:
-            self.steer = float(np.clip(m * 10, -10, 10))
-            self.max_step = 30
-        self.lane_state = True
-        self.publish_steer()
-        self.publish_bool()
+    # def school_zone(self):
+    #     self.max_step = 25
+    #     self.alpha    = 0.3
+    #     x_coords, y_coords = [], []
+    #     for i in self.target_indxs:
+    #         x_coords.append((self.left_centers[i] + self.right_centers[i]) / 2)
+    #         y_coords.append(self.bev_height
+    #                         - (i * self.window_height)
+    #                         - (self.window_height / 2))
+    #     x_coords, y_coords = self.filter_straight_outliers(x_coords, y_coords,
+    #                                                        slope_band=0.15)
+    #     if len(x_coords) < 3:
+    #         self.lane_state = True
+    #         self.publish_steer()
+    #         self.publish_bool()
+    #         return
+    #     a, b, c = np.polyfit(y_coords, x_coords, 2)
+    #     target_y = self.bev_height * 0.85
+    #     m = -(2 * a * target_y + b)
+    #     if -0.04 <= m <= 0.04:
+    #         error = np.mean(x_coords) - self.target
+    #         self.steer = 0.0 if abs(error) < 40 else error / 7
+    #         self.steer = float(np.clip(self.steer, -10, 10))
+    #     else:
+    #         self.steer = float(np.clip(m * 10, -10, 10))
+    #         self.max_step = 30
+    #     self.lane_state = True
+    #     self.publish_steer()
+    #     self.publish_bool()
 
     # 왼쪽 차선만 검출된 경우
     def only_left(self):
@@ -1302,6 +1569,8 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
+        if hasattr(node, 'cap') and node.cap is not None:
+            node.cap.release()
         node.destroy_node()
         cv2.destroyAllWindows()
     if rclpy.ok():

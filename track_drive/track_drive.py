@@ -316,12 +316,12 @@ class State(Node):
             self.car_pub.publish(conend)
 
             #첫 레인 들어갔을 떄 조향 보정을 위해 잠시 느린 속도로 주행
-            if self.count <= 12:
-                self.speed  = 5.0
-                self.steer = -15.0
-                self.count += 1
+            # if self.count <= 12:
+            #     self.speed  = 5.0
+            #     self.steer = -15.0
+            #     self.count += 1
             #지름길에서 나올 수 있을떄 일정시간 좌회전
-            elif self.left_rot_doing:
+            if self.left_rot_doing:
                 print("지름길 좌회전 시작")
                 elapsed = (self.get_clock().now() - self.left_rot_start_time).nanoseconds / 1e9
                 if elapsed < 4.5:
