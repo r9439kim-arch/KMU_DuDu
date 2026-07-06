@@ -125,14 +125,14 @@ class ConeGoalPointNode(Node):
     # ──────────────────────────────────────────
     def laserscan_to_xy(self, scan):
         ranges = np.array(scan.ranges, dtype=float)
-        angles = scan.angle_min + np.arange(len(ranges)) * scan.angle_increment
+        angles = np.linspace(0, 2 * np.pi, len(self.ranges)) - np.pi / 2
         ranges = np.where(np.isfinite(ranges), ranges, np.nan)
 
         finite = np.isfinite(ranges)
         r, a = ranges[finite], angles[finite]
 
-        x = -r * np.sin(a)   # 좌(-) 우(+)
-        y =  r * np.cos(a)   # 후(-) 전(+)
+        x = r * np.cos(a) * 100
+        y = r * np.sin(a) * 100
 
         # 전방: ROI_Y_MIN ~ ROI_Y_MAX,  좌우: ROI_X_MIN ~ ROI_X_MAX
         valid = (
